@@ -125,6 +125,12 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--surface-2)}
 .appt.cancelado{opacity:.55}.btn.warn{border-color:#d9a400;color:#7a5a00;background:#fff8e1}
 .tl-row{display:flex;gap:8px;align-items:flex-start}.tl-act{display:flex;gap:4px;flex-shrink:0}
 .tl-origin{color:var(--muted,#667);margin-top:2px}
+.modal.modal-wide{max-width:min(1150px,96vw);width:96vw}
+.chart.zoomable{cursor:zoom-in}.chart .zoom-btn{position:absolute;right:6px;top:4px;opacity:.85}
+.chart .mk-badge{cursor:pointer}.chart .mk-badge circle{fill:#d9531e;stroke:#fff;stroke-width:1.5}.chart .mk-badge text{fill:#fff;font-size:10px;font-weight:700;pointer-events:none}
+.chart .mk-badge.hl circle{fill:#0f6e5f;r:10}
+.mk-num{display:inline-block;min-width:20px;height:20px;line-height:20px;border-radius:10px;background:#d9531e;color:#fff;text-align:center;font-size:11px;font-weight:700}
+.zoom-legend tr.hl td{background:#fff3e0}
 </style></head>
 <body><div id="root"><div class="empty">Carregando…</div></div>
 <script>/* ===== seed_web.js ===== */
@@ -2877,6 +2883,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   }
 
   /* opts: { series:[{name, color?, points:[{date,value,doc,ref,flag,label}]}], unit, height, band:{lo,hi}, markers:[{date,label}], from, to, title, index } */
+  const fdate = d => d ? d.split('-').reverse().join('/') : '';
   function line(el, opts) {
     el.innerHTML = '';
     let series = opts.series.filter(s => s.points.length);
@@ -2906,7 +2913,12 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     const every = Math.ceil(months.length / Math.max(2, Math.floor((W - 60) / 70)));
     months.forEach((v, i) => { if (i % every) return; const dd = new Date(v); h += `<text x="${X(v)}" y="${H - 8}" class="axis" text-anchor="middle">${dd.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')}</text>`; });
     h += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" class="baseline"/>`;
-    (opts.markers || []).forEach(mk => { const v = t(mk.date); if (v < x0 || v > x1) return; h += `<line x1="${X(v)}" x2="${X(v)}" y1="${m.t}" y2="${H - m.b}" class="marker"/><text x="${X(v) + 3}" y="${m.t + 9}" class="marker-label">${esc(mk.label.slice(0, 22))}</text>`; });
+    const stack = {};
+    (opts.markers || []).forEach((mk, mi) => { const v = t(mk.date); if (v < x0 || v > x1) return; const xx = X(v);
+      if (opts.markerNumbers) { const k = Math.round(xx / 8); const n = stack[k] = (stack[k] || 0) + 1; const cy = m.t + 9 + (n - 1) * 17;
+        if (n === 1) h += `<line x1="${xx}" x2="${xx}" y1="${m.t}" y2="${H - m.b}" class="marker"/>`;
+        h += `<g class="mk-badge" data-mk="${mk.n}"><circle cx="${xx}" cy="${cy}" r="8"/><text x="${xx}" y="${cy + 3.5}" text-anchor="middle">${mk.n}</text><title>${esc(fdate(mk.date) + ' — ' + mk.label)}</title></g>`; }
+      else h += `<line x1="${xx}" x2="${xx}" y1="${m.t}" y2="${H - m.b}" class="marker"/><text x="${xx + 3}" y="${m.t + 9}" class="marker-label">${esc(mk.label.slice(0, 22))}</text>`; });
     const placed = [];
     series.forEach((s, si) => {
       const c = s.color || PALETTE[si % PALETTE.length];
@@ -2920,6 +2932,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     const tip = document.createElement('div'); tip.className = 'tip'; tip.style.display = 'none'; el.appendChild(tip); el.style.position = 'relative';
     const dates = [...new Set(all.map(p => p.date))].sort();
     const hit = svg.querySelector('.hit'), xh = svg.querySelector('.xhair');
+    svg.querySelectorAll('.mk-badge').forEach(g => svg.appendChild(g)); // números das intervenções ficam acima da camada de hover (clicáveis)
     const move = ev => {
       const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) * W / r.width;
       let best = dates[0]; dates.forEach(dd => { if (Math.abs(X(t(dd)) - px) < Math.abs(X(t(best)) - px)) best = dd; });
@@ -2931,6 +2944,10 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     };
     hit.addEventListener('mousemove', move); hit.addEventListener('touchstart', e => move(e.touches[0]), { passive: true });
     hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; xh.style.display = 'none'; });
+    // gráfico com intervenções: clique abre a versão ampliada com a legenda completa
+    if ((opts.markers || []).length && opts.zoom !== false && window.App && App.chartZoom) { el.classList.add('zoomable'); el.title = 'Clique para ampliar e ver a legenda completa das intervenções';
+      const zb = document.createElement('button'); zb.className = 'btn sm zoom-btn noprint'; zb.textContent = '🔍 Ampliar e ver legenda'; el.appendChild(zb);
+      el.onclick = ev => { if (ev.target.closest('[data-doc]')) return; App.chartZoom(opts); }; }
     if (series.length > 1) { const lg = document.createElement('div'); lg.className = 'legend'; lg.innerHTML = series.map((s, si) => `<span><span class="sw" style="background:${s.color || PALETTE[si % PALETTE.length]}"></span>${esc(s.name)}</span>`).join(''); el.insertBefore(lg, el.firstChild); }
   }
 
@@ -3090,7 +3107,9 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   // ---------- utilidades de dados ----------
   App.series = (code, opts) => Analysis.seriesOf(App.pid(), code, opts).map(o => ({ date: o.date, value: o.value, doc: o.doc, ref: o.ref, flag: Catalog.flag(o.value, o.ref), method: o.method && Catalog.METHODS[o.method] ? Catalog.METHODS[o.method].short : '' }));
   App.band = code => { const l = Analysis.latestLabs(App.pid())[code]; const r = l && Catalog.parseRef(l.ref); return r ? { lo: r.lo, hi: r.hi } : null; };
-  App.markers = () => Store.list('interventions', i => i.patientId === App.pid()).map(i => ({ date: i.date, label: i.text }));
+  App.markerTypesAll = () => [...new Set(Store.list('interventions', i => i.patientId === App.pid() && i.date && !i.hiddenTimeline).map(i => i.type || 'Outro'))].sort((a, b) => a.localeCompare(b, 'pt'));
+  /* types: lista de tipos a mostrar (null/undefined = todos) */
+  App.markers = types => Store.list('interventions', i => i.patientId === App.pid() && i.date && !i.hiddenTimeline && (!types || types.includes(i.type || 'Outro'))).sort((a, b) => a.date.localeCompare(b.date)).map((i, k) => ({ date: i.date, label: i.text, type: i.type, id: i.id, n: k + 1 }));
 
   // =================== DASHBOARD ===================
   App.views.dashboard = (v, P) => {
@@ -3116,7 +3135,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
       <span class="tag">${al.filter(a => a.level !== 'info').length} alertas de atenção</span><span class="tag hip">${Store.list('pending', p => p.patientId === pid && !p.resolved).length} pendências</span></div></div>
       <div class="row noprint" style="margin:4px 0 8px"><span class="small muted">Métricas e gráficos escolhidos por você</span><span class="sp"></span><button class="btn sm" id="dashcfg">⚙ Personalizar painel</button></div>
       <div class="kpis">${cfg.tiles.map(t => t === '__pa' ? paTile() : t === '__treino' ? trTile() : Catalog.analytes[t] ? tile(info(t).name, t, { method: App.methodFor(t) }) : '').join('') || '<p class="muted">Nenhuma métrica escolhida — use “Personalizar painel”.</p>'}</div>
-      <div class="grid g2">${cfg.charts.map((c, i) => `<div class="card"><h2>${esc(c.title)} <span class="muted small">${esc(App.chartSub(c))}</span><span class="sp"></span><button class="btn sm ghost noprint" data-rmchart="${i}" title="Remover este gráfico do painel">✕</button></h2><div class="chart" id="dc${i}"></div></div>`).join('') || '<div class="card muted">Nenhum gráfico escolhido — use “Personalizar painel”.</div>'}</div>
+      <div class="grid g2">${cfg.charts.map((c, i) => `<div class="card"><h2>${esc(c.title)} <span class="muted small">${esc(App.chartSub(c))}</span><span class="sp"></span>${c.markers ? `<button class="btn sm ghost noprint" data-mkt="${i}" title="Escolher os tipos de intervenção mostrados">⚙ Intervenções${c.markerTypes ? ` (${c.markerTypes.length})` : ''}</button>` : ''}<button class="btn sm ghost noprint" data-rmchart="${i}" title="Remover este gráfico do painel">✕</button></h2><div class="chart" id="dc${i}"></div></div>`).join('') || '<div class="card muted">Nenhum gráfico escolhido — use “Personalizar painel”.</div>'}</div>
       ${App.agendaCard(pid)}
       <div class="grid g2">
         <div class="card"><h2>Alertas <button class="btn sm" data-goto="avaliacao">ver tudo</button></h2>${al.slice(0, 7).map(a => App.alertHTML(a)).join('') || '<p class="muted">Sem alertas.</p>'}</div>
@@ -3126,7 +3145,8 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     $$('[data-gopa]', v).forEach(k => k.onclick = () => App.go('prontuario', 'pa'));
     $('#dashcfg', v).onclick = () => App.dashEditor(pid);
     $$('[data-rmchart]', v).forEach(bt => bt.onclick = () => { const c = App.dashConfig(pid); const ch = c.charts[+bt.dataset.rmchart]; if (!confirm(`Remover o gráfico “${ch.title}” do painel?`)) return; c.charts.splice(+bt.dataset.rmchart, 1); App.saveDash(pid, c); App.render(); });
-    cfg.charts.forEach((c, i) => App.drawDashChart($('#dc' + i, v), c));
+    cfg.charts.forEach((c, i) => App.drawDashChart($('#dc' + i, v), c, i));
+    $$('[data-mkt]', v).forEach(bt => bt.onclick = () => { const i = +bt.dataset.mkt; const c = App.dashConfig(pid); App.markerTypesModal(c.charts[i].markerTypes, sel => { c.charts[i].markerTypes = sel; App.saveDash(pid, c); App.render(); }, c.charts[i].title); });
   };
   App.alertHTML = (a, hidden) => `<div class="alert ${a.level}"><span class="ic">${a.level === 'critico' ? '⛔' : a.level === 'atencao' ? '⚠️' : 'ℹ️'}</span><div style="flex:1"><div class="small muted">${esc(a.kind)}${a.date ? ' · ' + fd(a.date) : ''}</div><div class="t">${a.code && Catalog.analytes[a.code] ? `<a href="#" data-explain="${a.code}">${esc(a.title)}</a>` : esc(a.title)}</div><div class="d">${esc(a.detail || '')} ${(a.src || []).filter(Boolean).map(d => src(d)).join(' ')}</div></div>
     ${hidden ? `<button class="btn sm noprint" data-undismiss="${esc(a.key)}" title="Voltar a exibir">Mostrar</button>` : `<button class="btn sm ghost noprint" data-dismiss="${esc(a.key)}|${a.fp}" title="Ocultar até que entrem dados novos">✕ Ocultar</button>`}</div>`;
@@ -4079,7 +4099,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     $('#idx', v).onchange = e => { st.index = e.target.checked; App.render(); };
     $$('[data-c]', v).forEach(c => c.onchange = () => { st.codes = $$('[data-c]', v).filter(x => x.checked).map(x => x.dataset.c); App.render(); });
     $$('[data-pre]', v).forEach(b => b.onclick = () => { st.codes = presets[+b.dataset.pre][1].filter(c => avail.includes(c)); App.render(); });
-    const ch = $('#charts', v); const mk = App.markers();
+    const ch = $('#charts', v); const mkSel = (Store.settings().markerTypes || {})[pid] || null; const mk = App.markers(mkSel); const onMk = sel => { const all = Object.assign({}, Store.settings().markerTypes || {}); all[pid] = sel; Store.settings({ markerTypes: all }); };
     const groupOf = c => st.index ? 'idx' : info(c).unit || c;
     const groups = {}; st.codes.forEach(c => (groups[groupOf(c)] = groups[groupOf(c)] || []).push(c));
     Object.entries(groups).forEach(([u, codes]) => {
@@ -4088,7 +4108,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
       const srcs = [...new Set(series.flatMap(s => s.points.map(p => p.doc)).filter(Boolean))];
       card.innerHTML = `<h2>${esc(codes.map(c => info(c).name).join(' · '))} <span class="muted small">${st.index ? 'índice base 100' : esc(u)}</span></h2><div class="chart"></div><div class="small muted" style="margin-top:6px">Origem: ${srcs.map(d => src(d)).join(' ')}</div>`;
       ch.appendChild(card);
-      Charts.line($('.chart', card), { series, unit: st.index ? '' : u, from, markers: mk, index: st.index, band: codes.length === 1 && !st.index ? App.band(codes[0]) : null });
+      Charts.line($('.chart', card), { series, unit: st.index ? '' : u, from, markers: mk, markerTypes: mkSel, onMarkerTypes: onMk, index: st.index, band: codes.length === 1 && !st.index ? App.band(codes[0]) : null });
     });
     if (!st.codes.length) ch.innerHTML = '<div class="card empty">Selecione ao menos um indicador.</div>';
     // entre avaliações
@@ -4123,10 +4143,11 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   App.methodFor = code => /Antropometria|Composição corporal/.test(info(code).cat) ? Analysis.PM() : null;
   const unitsOf = c => [...new Set(c.codes.map(x => info(x).unit))];
   App.chartSub = c => { const u = unitsOf(c); return c.index || u.length > 1 ? 'índice: 1º valor = 100' : (u[0] || '') + (c.codes.some(App.methodFor) ? ' · ' + Catalog.METHODS[Analysis.PM()].short : ''); };
-  App.drawDashChart = (el, c) => {
-    if (!el) return; const idx = c.index || unitsOf(c).length > 1;
+  App.drawDashChart = (el, c, ci) => {
+    if (!el) return; const idx = c.index || unitsOf(c).length > 1; const pid = App.pid();
     Charts.line(el, { series: c.codes.map(code => ({ name: info(code).name.replace('-colesterol', ''), points: App.series(code, App.methodFor(code) ? { method: App.methodFor(code) } : null) })), unit: idx ? '' : unitsOf(c)[0], index: idx,
-      band: c.codes.length === 1 && !App.methodFor(c.codes[0]) && App.band ? App.band(c.codes[0]) : null, markers: c.markers ? App.markers() : null });
+      band: c.codes.length === 1 && !App.methodFor(c.codes[0]) && App.band ? App.band(c.codes[0]) : null, markers: c.markers ? App.markers(c.markerTypes) : null, title: c.title, markerTypes: c.markerTypes,
+      onMarkerTypes: ci === undefined ? null : sel => { const cfg = App.dashConfig(pid); if (!cfg.charts[ci]) return; cfg.charts[ci].markerTypes = sel; App.saveDash(pid, cfg); } });
   };
   const hasData = (pid, code) => Analysis.seriesOf(pid, code, App.methodFor(code) ? { method: App.methodFor(code) } : null).length > 0;
   const metricOptions = (pid, exclude) => {
@@ -4143,7 +4164,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
         $('#de', m).innerHTML = `<h3>Métricas atuais (cartões)</h3><p class="small muted">Use ↑ ↓ para ordenar e ✕ para retirar. As medidas corporais usam o método principal (${esc(Catalog.METHODS[Analysis.PM()].short)}).</p>
           <div class="dash-list">${cfg.tiles.map((t, i) => `<div class="dash-item"><span>${esc(tName(t))}${!App.SPECIAL_TILES[t] && !hasData(pid, t) ? ' <span class="small muted">· sem dados</span>' : ''}</span><span class="sp"></span><button class="btn sm ghost" data-tu="${i}" ${i ? '' : 'disabled'}>↑</button><button class="btn sm ghost" data-td="${i}" ${i < cfg.tiles.length - 1 ? '' : 'disabled'}>↓</button><button class="btn sm ghost" data-tx="${i}" title="Retirar">✕</button></div>`).join('') || '<p class="muted small">Nenhuma métrica.</p>'}</div>
           <div class="row" style="margin-top:8px"><select id="tadd" style="flex:1"><option value="">— escolher métrica para incluir —</option><optgroup label="Especiais">${Object.entries(App.SPECIAL_TILES).filter(([k]) => !cfg.tiles.includes(k)).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</optgroup>${metricOptions(pid, cfg.tiles)}</select><button class="btn" id="tok">+ Incluir métrica</button></div>
-          <h3 style="margin-top:18px">Gráficos evolutivos</h3><div class="dash-list">${cfg.charts.map((c, i) => `<div class="dash-item"><span><b>${esc(c.title)}</b> <span class="small muted">${c.codes.map(x => esc(info(x).name)).join(', ')}${c.markers ? ' · com intervenções' : ''}${(c.index || unitsOf(c).length > 1) ? ' · índice' : ''}</span></span><span class="sp"></span><button class="btn sm ghost" data-cu="${i}" ${i ? '' : 'disabled'}>↑</button><button class="btn sm ghost" data-cd="${i}" ${i < cfg.charts.length - 1 ? '' : 'disabled'}>↓</button><button class="btn sm ghost" data-cx="${i}" title="Retirar">✕</button></div>`).join('') || '<p class="muted small">Nenhum gráfico.</p>'}</div>
+          <h3 style="margin-top:18px">Gráficos evolutivos</h3><div class="dash-list">${cfg.charts.map((c, i) => `<div class="dash-item"><span><b>${esc(c.title)}</b> <span class="small muted">${c.codes.map(x => esc(info(x).name)).join(', ')}${c.markers ? ' · com intervenções' + (c.markerTypes ? ' (' + c.markerTypes.map(esc).join(', ') + ')' : ' (todos os tipos)') : ''}${(c.index || unitsOf(c).length > 1) ? ' · índice' : ''}</span></span><span class="sp"></span><button class="btn sm ghost" data-cu="${i}" ${i ? '' : 'disabled'}>↑</button><button class="btn sm ghost" data-cd="${i}" ${i < cfg.charts.length - 1 ? '' : 'disabled'}>↓</button>${c.markers ? `<button class="btn sm ghost" data-cmt="${i}" title="Tipos de intervenção">⚙ Tipos</button>` : ''}<button class="btn sm ghost" data-cx="${i}" title="Retirar">✕</button></div>`).join('') || '<p class="muted small">Nenhum gráfico.</p>'}</div>
           <div class="card" style="margin-top:8px;padding:10px"><b class="small">Novo gráfico</b><div class="row" style="margin-top:6px;gap:8px"><input id="ctitle" placeholder="Título (ex.: Ácido úrico e PCR)" value="${esc(draft.title)}" style="flex:1"></div>
             <div class="row" style="margin-top:6px;gap:6px">${draft.codes.map((c, i) => `<span class="chip">${esc(info(c).name)} <a href="#" data-dx="${i}">✕</a></span>`).join('') || '<span class="small muted">Escolha de 1 a 4 métricas.</span>'}</div>
             <div class="row" style="margin-top:6px"><select id="cadd" style="flex:1" ${draft.codes.length >= 4 ? 'disabled' : ''}><option value="">— métrica —</option>${metricOptions(pid, draft.codes)}</select><button class="btn sm" id="caddb" ${draft.codes.length >= 4 ? 'disabled' : ''}>+ Métrica</button></div>
@@ -4154,6 +4175,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
         $$('[data-tx]', m).forEach(b => b.onclick = () => { cfg.tiles.splice(+b.dataset.tx, 1); save(); });
         $$('[data-cu]', m).forEach(b => b.onclick = () => mv(cfg.charts, +b.dataset.cu, -1)); $$('[data-cd]', m).forEach(b => b.onclick = () => mv(cfg.charts, +b.dataset.cd, 1));
         $$('[data-cx]', m).forEach(b => b.onclick = () => { cfg.charts.splice(+b.dataset.cx, 1); save(); });
+        $$('[data-cmt]', m).forEach(b => b.onclick = () => { const i = +b.dataset.cmt; App.markerTypesModal(cfg.charts[i].markerTypes, sel => { cfg.charts[i].markerTypes = sel; save(); }, cfg.charts[i].title); });
         $('#tok', m).onclick = () => { const v = $('#tadd', m).value; if (!v) return; cfg.tiles.push(v); save(); };
         $('#ctitle', m).oninput = e => { draft.title = e.target.value; };
         $('#cmk', m).onchange = e => { draft.markers = e.target.checked; }; $('#cix', m).onchange = e => { draft.index = e.target.checked; };
@@ -4164,6 +4186,18 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
       $('#dreset', m).onclick = () => { if (!confirm('Voltar às métricas e gráficos padrão?')) return; cfg = JSON.parse(JSON.stringify(App.DASH_DEFAULT)); save(); };
       m.parentNode.addEventListener('click', e => { if (e.target === m.parentNode || e.target.closest('[data-close]')) setTimeout(() => App.render(), 0); });
       draw();
+    });
+  };
+
+  /* escolha dos tipos de intervenção que aparecem num gráfico; sel = null significa "todos" (inclui tipos novos) */
+  App.markerTypesModal = (current, onSave, title) => {
+    const all = App.markerTypesAll(); const cnt = t => App.markers([t]).length;
+    App.modal(`<h2>Intervenções no gráfico${title ? ' — ' + esc(title) : ''}</h2><p class="small muted">Marque os tipos de intervenção que devem aparecer como marcações no gráfico.</p>
+      <div class="dash-list">${all.map(t => `<label class="dash-item"><input type="checkbox" data-t="${esc(t)}" ${!current || current.includes(t) ? 'checked' : ''}> <span>${esc(t)}</span><span class="sp"></span><span class="small muted">${cnt(t)}</span></label>`).join('') || '<p class="muted small">Nenhuma intervenção registrada.</p>'}</div>
+      <div class="row" style="margin-top:8px"><button class="btn sm ghost" id="mtall">Marcar todos</button><button class="btn sm ghost" id="mtnone">Desmarcar todos</button><span class="sp"></span><button class="btn" data-close>Cancelar</button><button class="btn pri" id="mtok">Aplicar</button></div>
+      <p class="small muted">Com todos marcados, tipos de intervenção criados no futuro também aparecem.</p>`, (m, close) => {
+      $('#mtall', m).onclick = () => $$('[data-t]', m).forEach(c => c.checked = true); $('#mtnone', m).onclick = () => $$('[data-t]', m).forEach(c => c.checked = false);
+      $('#mtok', m).onclick = () => { const sel = $$('[data-t]', m).filter(c => c.checked).map(c => c.dataset.t); close(); onSave(sel.length === all.length ? null : sel); };
     });
   };
 
@@ -4528,6 +4562,38 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
       <div class="row"><span class="sp"></span>${e.entity !== 'medications' ? '<button class="btn" id="oed">Editar</button>' : ''}<button class="btn pri" data-close>Fechar</button></div>`, (m, close) => { const b = $('#oed', m); if (b) b.onclick = () => { close(); App.editEvent(e, App.pid()); }; });
   };
 
+  /* Gráfico ampliado: intervenções numeradas no gráfico e legenda completa com origem rastreável */
+  App.chartZoom = opts => {
+    const pid = App.pid(); const types = {}; let only = null, period = 'all', changed = false;
+    const bg = App.modal(`<h2 style="display:flex;align-items:center;gap:8px">${esc(opts.title || (opts.series || []).map(s => s.name).join(', '))} — intervenções <span class="sp"></span><button class="btn" data-close>Fechar</button></h2>
+      <div class="row" style="gap:8px;flex-wrap:wrap" id="zf"></div><div class="chart" id="zc" style="margin-top:8px"></div><div id="zl" class="zoom-legend"></div>`, (m) => {
+      m.classList.add('modal-wide'); const bgEl = m.parentNode; bgEl.addEventListener('click', e => { if ((e.target === bgEl || e.target.closest('[data-close]')) && changed) setTimeout(() => App.render(), 0); });
+      const draw = () => {
+        const all = App.markers(); all.forEach(k => { const tp = k.type || 'Outro'; if (types[tp] === undefined) types[tp] = !opts.markerTypes || opts.markerTypes.includes(tp); });
+        const from = period === 'all' ? null : new Date(Date.now() - (+period) * 864e5).toISOString().slice(0, 10);
+        const mk = all.filter(k => types[k.type || 'Outro'] && (!from || k.date >= from) && (!only || k.n === only));
+        $('#zf', m).innerHTML = `<span class="small muted">Tipos${opts.onMarkerTypes ? ' (a escolha fica salva para este gráfico)' : ''}:</span>${Object.keys(types).map(tp => `<label class="chip small"><input type="checkbox" data-tp="${esc(tp)}" ${types[tp] ? 'checked' : ''}> ${esc(tp)} (${all.filter(k => (k.type || 'Outro') === tp).length})</label>`).join('')}
+          <span class="sp"></span><select id="zp"><option value="all">Todo o período</option>${[[365, '12 meses'], [180, '6 meses'], [90, '3 meses']].map(([d, l]) => `<option value="${d}" ${String(period) === String(d) ? 'selected' : ''}>${l}</option>`).join('')}</select>${only ? '<button class="btn sm" id="zall">Mostrar todas</button>' : ''}`;
+        Charts.line($('#zc', m), Object.assign({}, opts, { height: 380, markers: mk, markerNumbers: true, zoom: false, from: from || opts.from }));
+        const evs = mk.map(k => { const rec = Store.get('interventions', k.id); return { k, rec, e: rec ? { entity: 'interventions', id: rec.id, rec, date: rec.date, t: `${rec.type}: ${rec.text}`, doc: rec.doc, o: App.eventOrigin('interventions', rec) } : null }; }).filter(x => x.e).reverse();
+        $('#zl', m).innerHTML = `<p class="small muted">${mk.length} intervenção(ões). Os números no gráfico correspondem aos da lista. Clique num número do gráfico para destacá-lo aqui.</p>
+          <div class="tbl"><table><tr><th>#</th><th>Data</th><th>Intervenção</th><th>Origem</th><th></th></tr>${evs.map(({ k, rec, e }) => `<tr data-row="${k.n}"><td><span class="mk-num">${k.n}</span></td><td>${fd(rec.date)}${rec.inferred ? '<div class="small muted">data inferida</div>' : ''}</td><td><b>${esc(rec.type)}</b><div>${esc(rec.text)}</div>${rec.who ? `<div class="small muted">${esc(rec.who)}</div>` : ''}</td>
+            <td class="small">${e.o.icon} ${esc(e.o.name)}${e.o.doc ? `<div><span class="src" data-doc="${e.o.doc.id}">📄 ${esc(e.o.doc.id)}</span> ${esc(e.o.doc.type)} de ${fd(e.o.doc.date)}</div>` : e.o.label && e.o.label !== e.o.name ? `<div class="muted">${esc(e.o.label.slice(0, 120))}</div>` : ''}${e.o.edits.length ? `<div><span class="tag">corrigido ${e.o.edits.length}x</span></div>` : ''}</td>
+            <td class="right" style="white-space:nowrap"><button class="btn sm ghost" data-zo="${k.n}">Origem</button><button class="btn sm ghost" data-ze="${k.n}">Editar</button></td></tr>`).join('')}</table></div>`;
+        const byN = n => evs.find(x => x.k.n === +n).e;
+        $$('[data-zo]', m).forEach(b => b.onclick = () => App.originModal(byN(b.dataset.zo)));
+        $$('[data-ze]', m).forEach(b => b.onclick = () => App.editEvent(byN(b.dataset.ze), pid));
+        $$('[data-tp]', m).forEach(c => c.onchange = () => { types[c.dataset.tp] = c.checked; if (opts.onMarkerTypes) { const sel = Object.keys(types).filter(t => types[t]); opts.onMarkerTypes(sel.length === Object.keys(types).length ? null : sel); changed = true; } draw(); });
+        $('#zp', m).onchange = e => { period = e.target.value; draw(); };
+        const za = $('#zall', m); if (za) za.onclick = () => { only = null; draw(); };
+        $$('.mk-badge', m).forEach(g => g.onclick = ev => { ev.stopPropagation(); const n = g.dataset.mk; $$('[data-row]', m).forEach(r => r.classList.toggle('hl', r.dataset.row === n)); const r = $(`[data-row="${n}"]`, m); if (r) r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+        $$('[data-row]', m).forEach(r => { r.onmouseenter = () => $$('.mk-badge', m).forEach(g => g.classList.toggle('hl', g.dataset.mk === r.dataset.row)); r.onmouseleave = () => $$('.mk-badge', m).forEach(g => g.classList.remove('hl')); });
+      };
+      draw();
+      // edições feitas pela legenda (Origem → Editar) atualizam o gráfico ampliado
+      Store.onChange(() => { if (document.body.contains(bgEl)) setTimeout(draw, 50); });
+    });
+  };
   App.editEvent = (e, pid) => {
     if (e.entity === 'medications') { App.go('prontuario', 'meds'); App.toast('Medicamentos são corrigidos no cadastro de medicamentos'); return; }
     const K = KINDS[e.entity]; const rec = Store.get(e.entity, e.id); if (!rec) return;
