@@ -123,6 +123,8 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--surface-2)}
 .appt{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line,#e3e6e8)}
 .appt-d{width:92px;font-size:13px}.appt-a{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;max-width:210px}
 .appt.cancelado{opacity:.55}.btn.warn{border-color:#d9a400;color:#7a5a00;background:#fff8e1}
+.tl-row{display:flex;gap:8px;align-items:flex-start}.tl-act{display:flex;gap:4px;flex-shrink:0}
+.tl-origin{color:var(--muted,#667);margin-top:2px}
 </style></head>
 <body><div id="root"><div class="empty">Carregando…</div></div>
 <script>/* ===== seed_web.js ===== */
@@ -3229,6 +3231,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     }
     v.innerHTML = App.tabs(v, [['id', 'Identificação'], ['clinico', 'Histórico clínico'], ['meds', 'Medicamentos e suplementos'], ['goals', 'Objetivos'], ['pa', 'Pressão arterial'], ['equipe', 'Equipe'], ['timeline', 'Linha do tempo'], ['pend', 'Pendências']], tab) + body;
     if (tab === 'pa') App.bpTab($('#patab', v), P);
+    if (tab === 'timeline') App.bindTimeline(v, pid);
     App.bindTabs(v, 'prontuario');
     const on = (s, f) => { const e = $(s, v); if (e) e.onclick = f; };
     on('#edit', () => App.ask('Editar identificação', [{ name: 'name', label: 'Nome', value: P.name }, { name: 'birthDate', label: 'Nascimento', type: 'date', value: P.birthDate }, { name: 'sex', label: 'Sexo biológico', type: 'select', options: ['Masculino', 'Feminino'], value: P.sex }, { name: 'height', label: 'Altura (m)', type: 'number', step: '0.01', value: P.height }, { name: 'email', label: 'E-mail', value: P.email }, { name: 'phone', label: 'Telefone', value: P.phone }, { name: 'city', label: 'Cidade', value: P.city }], (o, r) => Store.update('patients', pid, o, r)));
@@ -3363,7 +3366,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     ev.sort((a, b) => b.date.localeCompare(a.date));
     return `<div class="card"><h2>Linha do tempo integrada <span class="sp"></span><button class="btn sm noprint" id="addint" onclick="App.addIntervention()">+ Intervenção</button></h2><p class="small muted">Consultas, exames, avaliações e intervenções (laranja). Cada item mostra data, responsável e documento.</p><div class="timeline">${ev.map(e => `<div class="tl ${e.cls}"><div class="dt">${fd(e.date)}</div><div><b>${esc(e.t)}</b> ${src(e.doc)}</div>${e.d ? `<div class="small muted">${esc(e.d)}</div>` : ''}</div>`).join('')}</div></div>`;
   };
-  App.addIntervention = () => App.ask('Registrar intervenção', [{ name: 'date', label: 'Data', type: 'date', value: Analysis.todayISO() }, { name: 'type', label: 'Tipo', type: 'select', options: ['Plano alimentar', 'Suplementação', 'Medicação', 'Treino', 'Comportamento/sono', 'Outro'] }, { name: 'text', label: 'Descrição', full: true }, { name: 'who', label: 'Responsável' }], (o, r) => Store.insert('interventions', Object.assign({ patientId: App.pid() }, o), r));
+  App.addIntervention = () => App.ask('Registrar intervenção', [{ name: 'date', label: 'Data', type: 'date', value: Analysis.todayISO() }, { name: 'type', label: 'Tipo', type: 'select', options: ['Plano alimentar', 'Suplementação', 'Medicação', 'Treino', 'Comportamento/sono', 'Outro'] }, { name: 'text', label: 'Descrição', full: true }, { name: 'who', label: 'Responsável' }], (o, r) => Store.insert('interventions', Object.assign({ patientId: App.pid(), origin: 'manual' }, o), r || 'Intervenção registrada manualmente'));
 
   // =================== RELATÓRIOS ===================
   App.views.relatorios = (v, P) => {
@@ -4415,6 +4418,129 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   /* bloco do Dashboard */
   App.agendaCard = pid => { const up = App.upcoming(pid, 60); const tb = App.appointments(pid).filter(a => a.status === 'a_marcar');
     return `<div class="card"><h2>📅 Próximas consultas e exames <span class="sp"></span><button class="btn sm" data-goto="agenda">abrir agenda</button></h2>${up.slice(0, 5).map(a => `<div class="row" style="margin-bottom:6px;flex-wrap:nowrap"><span class="tag">${fd(a.date)}${a.time ? ' ' + esc(a.time) : ''}</span><span>${esc(a.title)}<br><span class="small muted">${esc([a.professionalId ? App.proName(a.professionalId) : '', a.prep && a.prep !== 'Nenhum preparo' ? 'preparo: ' + a.prep : ''].filter(Boolean).join(' · '))}</span></span></div>`).join('') || '<p class="muted small">Nada agendado para os próximos 60 dias.</p>'}${tb.length ? `<p class="small muted">${tb.length} item(ns) a marcar.</p>` : ''}</div>`; };
+})();
+
+/* ===== ui/timeline.js ===== */
+/* =====================================================================
+   Linha do tempo com origem de cada acontecimento e edição
+   ===================================================================== */
+(function () {
+  const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+  const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fd = d => d ? d.split('-').reverse().join('/') : '—';
+  const dtt = iso => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  const OK = { documento: ['📄', 'Documento'], inicial: ['🗂', 'Base inicial'], atualizacao: ['⟳', 'Atualização de dados'], manual: ['✍', 'Registro manual'], sistema: ['⚙', 'Ação no sistema'] };
+  const patchReasons = () => ((window.SEED && window.SEED.patches) || []).map(p => p.reason).filter(Boolean);
+
+  /* De onde veio o registro: documento de origem, criação da base, atualização, registro manual ou ação no sistema */
+  App.eventOrigin = (entity, rec) => {
+    const ins = Store.raw.audit.find(a => a.entity === entity && a.id === rec.id && a.op === 'inclusao');
+    const edits = Store.raw.audit.filter(a => a.entity === entity && a.id === rec.id && a.op === 'alteracao');
+    const doc = rec.doc ? Store.get('documents', rec.doc) : null; const reason = ins ? ins.reason || '' : '';
+    let kind;
+    if (doc) kind = 'documento';
+    else if (!ins) kind = 'inicial';
+    else if (rec.origin === 'manual' || /manual|registrad[oa] pelo usuário/i.test(reason)) kind = 'manual';
+    else if (patchReasons().includes(reason)) kind = 'atualizacao';
+    else if (/importad|questionário|documento/i.test(reason)) kind = 'documento';
+    else kind = rec.origin === 'sistema' ? 'sistema' : (reason ? 'manual' : 'sistema');
+    const label = doc ? `${doc.type} de ${fd(doc.date)}` : kind === 'inicial' ? 'Criada a partir dos documentos do projeto' : kind === 'atualizacao' ? reason : reason || OK[kind][1];
+    return { kind, icon: OK[kind][0], name: OK[kind][1], label, doc, created: ins ? ins.ts : rec.createdAt, reason, edits, pro: rec.professionalId ? Store.get('professionals', rec.professionalId) : null };
+  };
+
+  /* cada tipo de registro: como aparece e quais campos podem ser corrigidos */
+  const docOpts = pid => [['', '— sem documento —']].concat(Store.list('documents', d => d.patientId === pid).sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(d => [d.id, `${d.id} · ${d.type} · ${fd(d.date)}`]));
+  const proOpts = pid => [['', '— não informado —']].concat(Store.list('professionals', x => !x.patientId || x.patientId === pid).map(x => [x.id, `${x.name} (${x.profession})`]));
+  const KINDS = {
+    encounters: { cat: 'atendimento', label: 'Atendimento / exame', ev: e => ({ date: e.date, cls: '', t: e.type, d: e.professionalId ? App.proName(e.professionalId) : e.who }), del: true,
+      fields: (e, pid) => [{ name: 'date', label: 'Data', type: 'date', value: e.date }, { name: 'type', label: 'Descrição', full: true, value: e.type }, { name: 'professionalId', label: 'Profissional', type: 'select', options: proOpts(pid), newPro: true, value: e.professionalId || '' }, { name: 'who', label: 'Responsável / local (texto)', value: e.who || '' }, { name: 'doc', label: 'Documento de origem', type: 'select', options: docOpts(pid), value: e.doc || '' }] },
+    interventions: { cat: 'intervencao', label: 'Intervenção', ev: e => ({ date: e.date, cls: 'int', t: `${e.type}: ${e.text}`, d: [e.who, e.inferred ? 'data inferida' : ''].filter(Boolean).join(' · ') }), del: true,
+      fields: (e, pid) => [{ name: 'date', label: 'Data', type: 'date', value: e.date }, { name: 'type', label: 'Tipo', type: 'select', options: ['Plano alimentar', 'Suplementação', 'Medicação', 'Treino', 'Comportamento/sono', 'Outro'], allowNew: 'tiposIntervencao', value: e.type }, { name: 'text', label: 'Descrição', full: true, value: e.text }, { name: 'who', label: 'Responsável', value: e.who || '' }, { name: 'doc', label: 'Documento de origem', type: 'select', options: docOpts(pid), value: e.doc || '' }, { name: 'inferred', label: 'A data é estimada?', type: 'select', options: [['', 'Não — data informada'], ['1', 'Sim — data inferida']], value: e.inferred ? '1' : '' }],
+      fix: o => { o.inferred = !!o.inferred; } },
+    notes: { cat: 'registro', label: 'Registro / anotação', ev: n => ({ date: n.date, cls: '', t: `${n.specialty || 'Registro'}${n.author ? ' — ' + n.author : ''}`, d: (n.text || '').slice(0, 160) }), del: true,
+      fields: n => [{ name: 'date', label: 'Data', type: 'date', value: n.date }, { name: 'specialty', label: 'Área / especialidade', value: n.specialty || '' }, { name: 'author', label: 'Autor', value: n.author || '' }, { name: 'text', label: 'Texto', type: 'textarea', value: n.text || '' }] },
+    goals: { cat: 'plano', label: 'Meta', ev: g => ({ date: g.startDate || (g.doc && (Store.get('documents', g.doc) || {}).date) || (g.createdAt || '').slice(0, 10), cls: 'int', t: 'Meta definida: ' + g.title, d: g.deadline ? 'prazo ' + fd(g.deadline) : '' }),
+      fields: g => [{ name: 'startDate', label: 'Data em que a meta foi definida', type: 'date', value: g.startDate || (g.doc && (Store.get('documents', g.doc) || {}).date) || (g.createdAt || '').slice(0, 10) }, { name: 'title', label: 'Meta', full: true, value: g.title }, { name: 'deadline', label: 'Prazo', type: 'date', value: g.deadline || '' }] },
+    stepFeedback: { cat: 'registro', label: 'Informação sobre próximo passo', ev: n => ({ date: n.date || (n.createdAt || '').slice(0, 10), cls: '', t: 'Informação complementar sobre próximo passo', d: (n.stepTitle || '') + ': ' + (n.text || n.status) }),
+      fields: n => [{ name: 'date', label: 'Data', type: 'date', value: n.date || (n.createdAt || '').slice(0, 10) }, { name: 'text', label: 'Informação', type: 'textarea', value: n.text || '' }] },
+    trainingPlans: { cat: 'plano', label: 'Plano de treino', ev: n => ({ date: n.date, cls: 'int', t: 'Plano de treino: ' + n.name, d: n.current ? 'plano atual' : '' }),
+      fields: n => [{ name: 'date', label: 'Data de início', type: 'date', value: n.date }, { name: 'name', label: 'Nome', full: true, value: n.name }] },
+    mealPlans: { cat: 'plano', label: 'Plano alimentar', ev: n => ({ date: n.date, cls: 'int', t: n.name, d: n.active ? 'plano ativo' : 'versão histórica' }),
+      fields: (n, pid) => [{ name: 'date', label: 'Data da versão', type: 'date', value: n.date }, { name: 'name', label: 'Nome', full: true, value: n.name }, { name: 'professionalId', label: 'Nutricionista', type: 'select', options: proOpts(pid), newPro: true, value: n.professionalId || '' }, { name: 'doc', label: 'Documento de origem', type: 'select', options: docOpts(pid), value: n.doc || '' }] },
+    appointments: { cat: 'atendimento', label: 'Compromisso da agenda', ev: a => ({ date: a.date, cls: '', t: `${a.status === 'agendado' ? '📅 Agendado: ' : ''}${a.title}`, d: [a.kind, a.professionalId ? App.proName(a.professionalId) : '', a.place].filter(Boolean).join(' · ') }), edit: a => App.apptForm(a) }
+  };
+  const CATS = [['', 'Todos os tipos'], ['atendimento', 'Atendimentos, exames e agenda'], ['intervencao', 'Intervenções'], ['plano', 'Planos e metas'], ['registro', 'Registros e anotações'], ['medicamento', 'Medicamentos']];
+
+  const medOrigin = a => { const r = a.reason || ''; const kind = patchReasons().includes(r) ? 'atualizacao' : /importad|questionário/i.test(r) ? 'documento' : 'manual';
+    return { kind, icon: OK[kind][0], name: OK[kind][1], label: r || 'Cadastro de medicamentos', reason: r, created: a.ts, edits: [] }; };
+  App.timelineEvents = pid => {
+    const ev = [];
+    Object.entries(KINDS).forEach(([entity, K]) => Store.list(entity, r => r.patientId === pid && !r.hiddenTimeline && (entity !== 'appointments' || (r.date && r.status === 'agendado'))).forEach(r => { const e = K.ev(r); if (e.date) ev.push(Object.assign(e, { entity, id: r.id, rec: r, cat: K.cat, doc: r.doc, o: App.eventOrigin(entity, r) })); }));
+    // medicamentos: início (e fim) de cada um, mais as alterações feitas pelo usuário; manutenções automáticas de dados ficam de fora
+    Store.list('medications', m => m.patientId === pid).forEach(m => { const o = App.eventOrigin('medications', m);
+      ev.push({ date: m.start || (o.doc && o.doc.date) || (o.created || '').slice(0, 10), cls: 'int', t: `${m.start ? 'Início' : 'Cadastro'} de ${App.isDrug && App.isDrug(m.kind) ? 'medicamento' : 'suplemento'}: ${m.name}${m.dose ? ' ' + m.dose : ''}`, d: [m.freq, m.start ? '' : o.doc ? 'data do documento (início não informado)' : 'data do cadastro (início não informado)'].filter(Boolean).join(' · '), entity: 'medications', id: m.id, cat: 'medicamento', o });
+      if (m.end) ev.push({ date: m.end, cls: 'int', t: `Fim: ${m.name}`, d: '', entity: 'medications', id: m.id, cat: 'medicamento', o }); });
+    const pr = patchReasons();
+    Store.raw.audit.forEach(a => { if (a.entity === 'medications' && a.op === 'alteracao' && a.after && a.after.patientId === pid && !pr.includes(a.reason) && !/^(Preenchimento de pendência|Questionário)/.test(a.reason || '')) ev.push({ date: a.ts.slice(0, 10), cls: 'int', t: 'Alteração de medicamento/suplemento: ' + a.after.name, d: '', entity: 'medications', id: a.id, cat: 'medicamento', o: medOrigin(a) }); });
+    return ev.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  };
+
+  App.timelineHTML = pid => {
+    const st = App.tab.tl = App.tab.tl || { cat: '', origin: '', q: '' };
+    const all = App.timelineEvents(pid); const nq = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const list = all.filter(e => (!st.cat || e.cat === st.cat) && (!st.origin || e.o.kind === st.origin) && (!st.q || nq(e.t + ' ' + (e.d || '') + ' ' + e.o.label).includes(nq(st.q))));
+    const hidden = Object.keys(KINDS).reduce((n, k) => n + Store.list(k, r => r.patientId === pid && r.hiddenTimeline).length, 0);
+    return `<div class="card"><h2>Linha do tempo integrada <span class="sp"></span><button class="btn sm noprint" id="addenc">+ Atendimento</button><button class="btn sm noprint" id="addint">+ Intervenção</button></h2>
+      <p class="small muted">Cada acontecimento mostra de onde veio: 📄 documento, 🗂 base inicial, ⟳ atualização de dados, ✍ registro manual ou ⚙ ação no sistema. Clique em <b>Origem</b> para ver o detalhe e o histórico, ou em <b>Editar</b> para corrigir — toda correção fica registrada.</p>
+      <div class="row noprint" style="gap:8px;flex-wrap:wrap;margin-bottom:8px"><input id="tlq" placeholder="Buscar" value="${esc(st.q)}" style="flex:1;min-width:160px"><select id="tlc">${CATS.map(([k, v]) => `<option value="${k}" ${st.cat === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <select id="tlo"><option value="">Todas as origens</option>${Object.entries(OK).map(([k, v]) => `<option value="${k}" ${st.origin === k ? 'selected' : ''}>${v[0]} ${v[1]}</option>`).join('')}</select></div>
+      <div class="timeline">${list.map((e, i) => `<div class="tl ${e.cls}"><div class="dt">${fd(e.date)}</div><div class="tl-row"><div style="flex:1"><b>${esc(e.t)}</b> ${e.doc ? `<span class="src" data-doc="${e.doc}">📄 ${e.doc}</span>` : ''}${e.d && e.d !== e.o.label ? `<div class="small muted">${esc(e.d)}</div>` : ''}
+          <div class="small tl-origin">${e.o.icon} ${esc(e.o.name)}${e.o.kind !== 'documento' && e.o.label && e.o.label !== e.o.name ? ' · ' + esc(e.o.label.slice(0, 110)) : e.o.doc ? ' · ' + esc(e.o.label) : ''}${e.o.pro ? ' · ' + esc(e.o.pro.name) : ''}${e.o.edits && e.o.edits.length ? ` · <span class="tag">corrigido ${e.o.edits.length}x</span>` : ''}</div></div>
+          <div class="tl-act noprint"><button class="btn sm ghost" data-tlo="${i}">Origem</button><button class="btn sm ghost" data-tle="${i}">Editar</button></div></div></div>`).join('') || '<p class="muted">Nenhum acontecimento com esses filtros.</p>'}</div>
+      ${hidden ? `<p class="small muted">${hidden} acontecimento(s) ocultado(s) da linha do tempo. <a href="#" id="tlshow">Mostrar novamente</a></p>` : ''}</div>`;
+  };
+
+  App.bindTimeline = (v, pid) => {
+    const st = App.tab.tl; const list = (() => { const all = App.timelineEvents(pid); const nq = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); return all.filter(e => (!st.cat || e.cat === st.cat) && (!st.origin || e.o.kind === st.origin) && (!st.q || nq(e.t + ' ' + (e.d || '') + ' ' + e.o.label).includes(nq(st.q)))); })();
+    let tmr; $('#tlq', v).oninput = e => { clearTimeout(tmr); tmr = setTimeout(() => { st.q = e.target.value; App.render(); setTimeout(() => { const i = $('#tlq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 300); };
+    $('#tlc', v).onchange = e => { st.cat = e.target.value; App.render(); }; $('#tlo', v).onchange = e => { st.origin = e.target.value; App.render(); };
+    $('#addint', v).onclick = () => App.addIntervention();
+    $('#addenc', v).onclick = () => App.ask('Registrar atendimento ou exame', [{ name: 'date', label: 'Data', type: 'date', value: Analysis.todayISO() }, { name: 'type', label: 'Descrição (ex.: Consulta endocrinologista)', full: true }, { name: 'professionalId', label: 'Profissional', type: 'select', options: proOpts(pid), newPro: true }, { name: 'who', label: 'Local / responsável (texto)' }, { name: 'doc', label: 'Documento de origem', type: 'select', options: docOpts(pid) }],
+      (o, r) => { if (!o.type) throw new Error('Informe a descrição.'); Store.insert('encounters', Object.assign({ patientId: pid, origin: 'manual' }, o), r || 'Atendimento registrado manualmente'); });
+    const sh = $('#tlshow', v); if (sh) sh.onclick = e => { e.preventDefault(); Object.keys(KINDS).forEach(k => Store.list(k, r => r.patientId === pid && r.hiddenTimeline).forEach(r => Store.update(k, r.id, { hiddenTimeline: false }, 'Voltou a aparecer na linha do tempo'))); App.render(); };
+    $$('[data-tlo]', v).forEach(b => b.onclick = () => App.originModal(list[+b.dataset.tlo]));
+    $$('[data-tle]', v).forEach(b => b.onclick = () => App.editEvent(list[+b.dataset.tle], pid));
+  };
+
+  App.originModal = e => {
+    const o = e.o; const K = KINDS[e.entity];
+    const hist = e.entity === 'medications' ? [] : Store.history(e.entity, e.id).filter(a => a.op === 'alteracao');
+    const diff = a => { const keys = [...new Set(Object.keys(a.after || {}).concat(Object.keys(a.before || {})))].filter(k => !['updatedAt', 'version', 'createdAt'].includes(k) && JSON.stringify((a.before || {})[k]) !== JSON.stringify((a.after || {})[k]) && typeof ((a.after || {})[k] ?? (a.before || {})[k]) !== 'object');
+      return keys.map(k => `<div class="small"><b>${esc(k)}</b>: <span class="muted">${esc((a.before || {})[k] ?? '—')}</span> → ${esc((a.after || {})[k] ?? '—')}</div>`).join(''); };
+    App.modal(`<h2>Origem do acontecimento</h2><p><b>${esc(e.t)}</b><br><span class="small muted">${fd(e.date)} · ${esc(K ? K.label : 'Medicamento/suplemento')}</span></p>
+      <table class="small"><tr><td style="width:170px"><b>Origem</b></td><td>${o.icon} ${esc(o.name)}</td></tr>
+        ${o.doc ? `<tr><td><b>Documento</b></td><td><span class="src" data-doc="${o.doc.id}">📄 ${esc(o.doc.id)}</span> ${esc(o.doc.type)} de ${fd(o.doc.date)}${o.doc.file ? `<div class="muted">${esc(o.doc.file)}</div>` : ''}${o.doc.source ? `<div class="muted">${esc(o.doc.source)}</div>` : ''}</td></tr>` : ''}
+        ${o.kind === 'inicial' ? '<tr><td><b>Detalhe</b></td><td>Registro criado junto com a base, a partir dos documentos do projeto. A data e o conteúdo vêm desses documentos.</td></tr>' : ''}
+        ${o.reason ? `<tr><td><b>Motivo do registro</b></td><td>${esc(o.reason)}</td></tr>` : ''}
+        <tr><td><b>Registrado no sistema em</b></td><td>${dtt(o.created)}</td></tr>
+        ${o.pro ? `<tr><td><b>Profissional</b></td><td>${esc(o.pro.name)} (${esc(o.pro.profession)})</td></tr>` : ''}</table>
+      <h3>Correções (${hist.length})</h3>${hist.slice().reverse().map(a => `<div style="margin-bottom:6px"><div class="small">${dtt(a.ts)} — ${esc(a.reason || 'sem motivo informado')}</div>${diff(a)}</div>`).join('') || '<p class="small muted">Nenhuma correção feita.</p>'}
+      <div class="row"><span class="sp"></span>${e.entity !== 'medications' ? '<button class="btn" id="oed">Editar</button>' : ''}<button class="btn pri" data-close>Fechar</button></div>`, (m, close) => { const b = $('#oed', m); if (b) b.onclick = () => { close(); App.editEvent(e, App.pid()); }; });
+  };
+
+  App.editEvent = (e, pid) => {
+    if (e.entity === 'medications') { App.go('prontuario', 'meds'); App.toast('Medicamentos são corrigidos no cadastro de medicamentos'); return; }
+    const K = KINDS[e.entity]; const rec = Store.get(e.entity, e.id); if (!rec) return;
+    if (K.edit) return K.edit(rec);
+    const extra = [{ name: '__act', label: 'O que fazer com este acontecimento', type: 'select', options: [['', 'Manter na linha do tempo'], ['hide', 'Ocultar da linha do tempo (o registro continua)']].concat(K.del ? [['del', 'Excluir — registro feito por engano']] : []), value: '' }];
+    App.ask(`Editar — ${K.label}`, K.fields(rec, pid).concat(extra), (o, r) => {
+      const act = o.__act; delete o.__act;
+      if (act === 'del') { if (!confirm('Excluir este registro? Ele continua no histórico de auditoria.')) return; Store.archive(e.entity, rec.id, r || 'Excluído na linha do tempo (registro feito por engano)'); return; }
+      if (K.fix) K.fix(o); Object.keys(o).forEach(k => { if (o[k] === '' && !rec[k]) delete o[k]; });
+      if (act === 'hide') o.hiddenTimeline = true;
+      Store.update(e.entity, rec.id, o, r || `Corrigido na linha do tempo${act === 'hide' ? ' (ocultado)' : ''}`);
+    });
+  };
 })();
 
 /* ===== ui/sync_ui.js ===== */
