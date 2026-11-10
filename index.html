@@ -943,7 +943,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   /* Contextos específicos do paciente (diagnósticos, medicamentos) */
   function context(code, pid) {
     const P = Store.get('patients', pid) || {}; const C = P.clinical || {}; const out = [];
-    const dx = re => (C.diagnoses || []).some(d => re.test(d.text)) || [].concat(C.metabolic || []).some(x => re.test(x));
+    const dx = re => (C.diagnoses || []).some(d => d.status !== 'descartado' && re.test(d.text)) || [].concat(C.metabolic || []).some(x => re.test(x));
     const med = re => Store.list('medications', m => m.patientId === pid && !m.end && re.test(m.name)).length > 0;
     if (code === 'acido_urico' && dx(/gota/i)) out.push('Você trata gota: a meta usual é ácido úrico abaixo de 6 mg/dL, mesmo que a referência do laboratório vá até 7,8.');
     if (code === 'acido_urico' && med(/alopurinol/i)) out.push('O alopurinol reduz a produção de ácido úrico; o efeito aparece nos exames após algumas semanas.');
@@ -1395,7 +1395,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   const ser = (pid, c, m) => obs(pid, c, m ? { method: m } : null).filter(o => o.value !== null).map(o => `${fmtNum(o.value)} (${fmtDate(o.date).slice(3)})`).join(' → ');
   const docs = (pid, codes) => [...new Set(codes.flatMap(c => obs(pid, c).map(o => o.doc)))];
 
-  const hasDx = (pid, re) => { const C = (Store.get('patients', pid) || {}).clinical || {}; return (C.diagnoses || []).some(d => re.test(d.text)) || [].concat(C.metabolic || []).some(x => re.test(x)); };
+  const hasDx = (pid, re) => { const C = (Store.get('patients', pid) || {}).clinical || {}; return (C.diagnoses || []).some(d => d.status !== 'descartado' && re.test(d.text)) || [].concat(C.metabolic || []).some(x => re.test(x)); };
   const medOn = (pid, re) => Interp.meds(pid).some(m => re.test(m.canon) || re.test(m.name));
   const yr = d => d ? d.slice(0, 4) : '';
   const lastOf = (pid, c, m) => obs(pid, c, m ? { method: m } : null).filter(o => o.value !== null).pop();
@@ -3177,7 +3177,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
         <div class="card"><h2>Antropometria atual</h2><table>${['peso', 'imc', 'cintura', 'abdomen', 'gordura_pct', 'massa_gorda', 'massa_magra', 'quadril'].map(c => { const s = Analysis.seriesOf(pid, c, { method: Analysis.PM() }); const l = s[s.length - 1]; return `<tr><td class="muted">${info(c).name}</td><td>${l ? num(l.value) + ' ' + info(c).unit : '<span class="muted">sem registro</span>'}</td><td>${l ? fd(l.date) + ' ' + src(l.doc) : ''}</td></tr>`; }).join('')}
         <tr><td class="muted">Histórico de peso</td><td colspan="2">${w.map(x => num(x.value)).join(' → ')} kg</td></tr></table><p class="small muted">Detalhes e outros métodos em Antropometria e BIA.</p></div></div>`;
     } else if (tab === 'clinico') {
-      const item = (d, i, key) => `<div style="margin-bottom:10px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1">${App.explain('• ' + (d.plain || d.text), d.detail || (d.plain ? 'Texto original: ' + d.text : ''), `<span class="muted small">${d.date ? fd(d.date) : ''} ${d.source ? '· ' + esc(d.source) : ''}${(d.alsoReported || []).length ? ` · também informado em ${d.alsoReported.map(x => esc(x.source || fd(x.date) || '')).join('; ')}` : ''}</span> ${src(d.doc)}`)}</div>${key ? `<button class="btn sm ghost noprint" data-rmclin="${key}|${i}" title="Remover este item (fica no histórico)">✕</button>` : ''}</div>`;
+      const item = (d, i, key) => `<div style="margin-bottom:10px;display:flex;gap:6px;align-items:flex-start"><div style="flex:1">${App.explain('• ' + (d.plain || d.text), d.detail || (d.plain ? 'Texto original: ' + d.text : ''), `<span class="muted small">${d.status ? `<span class="tag ${d.status === 'descartado' ? 'hip' : ''}">${esc({ ativo: 'ativo', controlado: 'controlado', resolvido: 'resolvido', descartado: 'descartado' }[d.status] || d.status)}</span> ` : ''}${d.dxDate ? 'diagnóstico em ' + fd(d.dxDate) + ' · ' : ''}${d.date ? fd(d.date) : ''} ${d.source ? '· ' + esc(d.source) : ''}${(d.alsoReported || []).length ? ` · também informado em ${d.alsoReported.map(x => esc(x.source || fd(x.date) || '')).join('; ')}` : ''}</span> ${src(d.doc)}`)}</div>${key ? `<button class="btn sm ghost noprint" data-edclin="${key}|${i}" title="Corrigir este item">✎ Editar</button><button class="btn sm ghost noprint" data-rmclin="${key}|${i}" title="Remover este item (fica no histórico)">✕</button>` : ''}</div>`;
       const dupG = App.clinDuplicates(C);
       const vals = k => [].concat(C[k] || []).filter(Boolean);
       body = `<div class="grid g2"><div class="card"><h2>Diagnósticos, achados e cirurgias</h2>
@@ -3236,6 +3236,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     on('#editc', () => App.clinicalEditor(P));
     $$('[data-add]', v).forEach(b => b.onclick = () => App.addClinicalItem(b.dataset.add));
     on('#dups', () => App.dupModal(P));
+    $$('[data-edclin]', v).forEach(b => b.onclick = () => { const [k, i] = b.dataset.edclin.split('|'); App.editClinicalItem(k, +i); });
     $$('[data-rmclin]', v).forEach(b => b.onclick = () => { const [k, i] = b.dataset.rmclin.split('|'); const C2 = JSON.parse(JSON.stringify(P.clinical || {})); const it = C2[k][+i]; if (!confirm(`Remover “${it.plain || it.text}”? O item continua no histórico de versões e pode ser restaurado.`)) return; C2[k].splice(+i, 1); Store.update('patients', pid, { clinical: C2 }, 'Item removido do histórico clínico: ' + (it.plain || it.text)); App.render(); });
     const medFields = m => { const pros = Store.list('professionals', x => x.patientId === pid);
       const kindVal = m.kind === 'medicamento' ? 'medicamento_continuo' : m.kind;
@@ -3326,6 +3327,29 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
   App.addClinicalItem = key => { const P = App.patient(); const C = P.clinical || {};
     App.ask(key === 'diagnoses' ? 'Registrar diagnóstico' : 'Adicionar', [{ name: 'plain', label: 'Descrição em linguagem simples', full: true }, { name: 'detail', label: 'Explicação detalhada / termo técnico', type: 'textarea' }, { name: 'date', label: 'Data', type: 'date' }, { name: 'source', label: 'Fonte / profissional responsável' }],
       (o, r) => { const c = Object.assign({}, C); o.text = o.plain; const dup = (c[key] || []).find(x => App.sameClinical(x, o)); if (dup && !confirm(`Já existe um item parecido: “${dup.plain || dup.text}”. Registrar mesmo assim?`)) return; c[key] = (c[key] || []).concat([o]); Store.update('patients', P.id, { clinical: c }, r); }); };
+  /* Correção de um diagnóstico, achado, condição em investigação ou cirurgia (com histórico de versões) */
+  App.CLIN_KEYS = [['diagnoses', 'Diagnóstico'], ['findings', 'Achado de exame (não é diagnóstico)'], ['investigating', 'Condição em investigação'], ['surgeries', 'Cirurgia / procedimento']];
+  App.editClinicalItem = (key, idx) => {
+    const P = App.patient(); const C = P.clinical || {}; const it = (C[key] || [])[idx]; if (!it) return;
+    App.ask('Corrigir item do histórico clínico', [
+      { name: 'cat', label: 'Categoria', type: 'select', options: App.CLIN_KEYS, value: key },
+      { name: 'plain', label: 'Descrição em linguagem simples', full: true, value: it.plain || it.text || '' },
+      { name: 'text', label: 'Termo técnico / texto original do documento', full: true, value: it.text && it.text !== it.plain ? it.text : '' },
+      { name: 'detail', label: 'Explicação detalhada', type: 'textarea', value: it.detail || '' },
+      { name: 'date', label: 'Data do registro / documento', type: 'date', value: it.date || '' },
+      { name: 'dxDate', label: 'Data do diagnóstico (se souber)', type: 'date', value: it.dxDate || '' },
+      { name: 'source', label: 'Fonte / profissional responsável', value: it.source || '' },
+      { name: 'status', label: 'Situação', type: 'select', options: [['', '— não informada —'], ['ativo', 'Ativo / em tratamento'], ['controlado', 'Controlado'], ['resolvido', 'Resolvido / curado'], ['descartado', 'Descartado (não confirmado)']], value: it.status || '' }
+    ], (o, r) => {
+      if (!o.plain) throw new Error('Informe a descrição.');
+      const c = JSON.parse(JSON.stringify(C)); const cur = c[key][idx];
+      const upd = Object.assign({}, cur, { plain: o.plain, text: o.text || o.plain, detail: o.detail || undefined, date: o.date || undefined, dxDate: o.dxDate || undefined, source: o.source || undefined, status: o.status || undefined, editedAt: new Date().toISOString() });
+      Object.keys(upd).forEach(k => upd[k] === undefined && delete upd[k]);
+      const label = App.CLIN_KEYS.find(x => x[0] === o.cat)[1];
+      if (o.cat !== key) { c[key].splice(idx, 1); c[o.cat] = (c[o.cat] || []).concat([upd]); } else c[key][idx] = upd;
+      Store.update('patients', P.id, { clinical: c }, r || `Item do histórico clínico corrigido: ${cur.plain || cur.text}${o.cat !== key ? ' (movido para ' + label + ')' : ''}`);
+    });
+  };
   App.timelineHTML = pid => {
     const ev = [];
     Store.list('encounters', e => e.patientId === pid).forEach(e => ev.push({ date: e.date, cls: '', t: e.type, d: e.who, doc: e.doc }));
@@ -3703,7 +3727,7 @@ window.TACO_DB = { groups: {"cer": "Cereais e derivados", "ver": "Verduras, hort
     const der = Analysis.derived(pid); const dl = c => der.filter(d => d.code === c).pop();
     const plan = Store.list('mealPlans', m => m.patientId === pid && m.active)[0]; const tot = plan ? Ingest.planSummary(plan, pid).avg : Nutrition.planTotals(null); const w = (Analysis.seriesOf(pid, 'peso', { method: PM }).pop() || {}).value;
     const en = Store.list('energy', e => e.patientId === pid).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]; const meds = Interp.meds(pid); const eff = Interp.medEffects(pid).filter(r => r.med.start);
-    const C = P.clinical || {}; const gout = (C.diagnoses || []).some(d => /gota/i.test(d.text)); const bp = Interp.bp(pid);
+    const C = P.clinical || {}; const gout = (C.diagnoses || []).some(d => d.status !== 'descartado' && /gota/i.test(d.text)); const bp = Interp.bp(pid);
     const effLines = codes => eff.flatMap(r => r.items.filter(i => codes.includes(i.code)).map(i => `${r.med.name}: ${i.text}`));
     const medsFor = re => meds.filter(m => re.test(m.canon)).map(m => `${m.name} ${m.dose || ''} ${m.freq || ''}${m.start ? ' (desde ' + fd(m.start) + ')' : ' (início não informado)'}`);
 
